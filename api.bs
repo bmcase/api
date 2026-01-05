@@ -763,6 +763,8 @@ dictionary AttributionConversionOptions {
   sequence<double> credit;
   unsigned long value = 1;
   unsigned long maxValue = 1;
+
+  Uint8Array taskId;
 };
 
 dictionary AttributionConversionResult {
@@ -821,6 +823,13 @@ The arguments to <a method for=Attribution>measureConversion()</a> are as follow
     Together with epsilon, this is used to calibrate the distribution of random noise that
     will be added to the outcome. It is also used to determine the amount of [=privacy budget=]
     to expend on this [=conversion report=].
+  </dd>
+  <dt><dfn>taskId</dfn></dt>
+  <dd>
+    An optional [=task identifier=] that allows sites to group reports for aggregation.
+    When provided, this value is used as the DAP task ID in the [=conversion report=].
+    If omitted, a default task ID for [[DAP-EXT#name-late-task-binding|late task binding]] is used.
+    The [=aggregation service=] uses this value to shard its [[#anti-replay|anti-replay]] mechanism.
   </dd>
 </dl>
 
@@ -1560,7 +1569,9 @@ and [=implicit API inputs=] |implicitInputs|:
                 1.  Let |encryptedReport| be the result of invoking <a>construct a DAP report</a>,
                     given |validatedOptions|,
                     |implicitInputs|' [=implicit API inputs/top-level site=],
-                    |implicitInputs|' [=implicit API inputs/timestamp=], and |report|.
+                    |implicitInputs|' [=implicit API inputs/timestamp=],
+                    |report|, and
+                    |validatedOptions|'s [=validated conversion options/Task ID=].
          </dl>
      1.  Let |result| be a {{AttributionConversionResult}} with the following items:
           : {{AttributionConversionResult/report}}
@@ -1590,6 +1601,7 @@ impressions or whether the API is enabled.
 <dfn>Credit</dfn>: A [=list=] of numbers.
 <dfn>Value</dfn>: A [=32-bit unsigned integer=].
 <dfn>Max Value</dfn>: A [=32-bit unsigned integer=].
+<dfn>Task ID</dfn>: A [=byte sequence=] or null.
 </pre>
 </div>
 
@@ -1664,6 +1676,8 @@ To <dfn>validate {{AttributionConversionOptions}}</dfn> |options|:
     :: |options|.{{AttributionConversionOptions/value}}
     : [=validated conversion options/Max Value=]
     :: |options|.{{AttributionConversionOptions/maxValue}}
+    : [=validated conversion options/Task ID=]
+    :: |options|.{{AttributionConversionOptions/taskId}} if it [=map/exists=], null otherwise
 
 </div>
 
@@ -2436,7 +2450,8 @@ producing a [=byte sequence=] |report|,
 given [=validated conversion options=] |options|,
 [=site=] |topLevelSite|,
 [=moment=] |now|,
-and a [=list=] of [=integers=] |histogram|:
+a [=list=] of [=integers=] |histogram|,
+and a [=byte sequence=] or null |callerTaskID|:
 
 1.  Let |field| be Field128,
     as defined in [Section 6.1.3](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vdaf-15#section-6.1.3)
@@ -2454,7 +2469,8 @@ and a [=list=] of [=integers=] |histogram|:
 1.  Let |vdaf| be a new PrioL1BoundSum VDAF [[PRIO-L1]] instance,
     passing |field|, |length|, |bits|, and |chunkLength|.
 
-1.  Let |taskID| be the [=byte sequence=]
+1.  Let |taskID| be |callerTaskID| if |callerTaskID| is not null,
+    otherwise the [=byte sequence=]
     from the hex string `b13e8440f1cdb4da51eed3967e0a2652d27f5005bc35f751daf188b4b746708b`
     [[DAP-EXT]].
 
@@ -2554,6 +2570,23 @@ that was expended by the site that requested the report.
 
 An [=aggregation service=] MUST guarantee
 that it does not accept the same report more than once.
+
+To support anti-replay verification,
+each [=conversion report=] includes associated data
+that is authenticated as part of the AEAD encryption.
+This associated data includes:
+
+*   The [=origin=] of the caller invoking the {{Attribution/measureConversion()}} API.
+*   A timestamp, as determined by the device at the time of the API call.
+*   An optional caller-provided <dfn>task identifier</dfn>,
+    which allows sites to group reports for aggregation.
+
+The [=aggregation service=] uses this associated data
+to shard its anti-replay mechanism.
+This sharding enables efficient verification
+that each report is processed only once,
+while allowing the service to scale
+across distinct aggregation tasks and time periods.
 
 
 # Differential Privacy # {#dp}
